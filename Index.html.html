@@ -1,0 +1,354 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Buscador de Artículos Científicos</title>
+  <style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 20px;
+    margin-right: 320px;
+  }
+
+  h1, h2, h4 {
+    color: #2c3e50;
+  }
+
+  input[type="text"], select, button {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+  }
+
+  button {
+    background-color: #3498db;
+    color: white;
+    border: none;
+  }
+
+  button:hover {
+    background-color: #2980b9;
+  }
+
+  .resultados {
+    display: flex;
+    overflow-x: auto;
+    gap: 20px;
+    scroll-behavior: smooth;
+    padding-bottom: 20px;
+  }
+
+  .card {
+    min-width: 300px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+    transition: transform 0.2s;
+  }
+
+  .card:hover {
+    transform: scale(1.02);
+  }
+
+  .card h3 {
+    margin-top: 0;
+    color: #34495e;
+  }
+
+  .card p {
+    font-size: 14px;
+    color: #555;
+  }
+
+  aside {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 300px;
+    height: 100%;
+    background: #f4f6f8;
+    padding: 20px;
+    overflow-y: auto;
+    border-left: 2px solid #ccc;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.05);
+  }
+
+  #historial h4 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 5px;
+  }
+
+  #historial a {
+    display: block;
+    color: #2980b9;
+    text-decoration: none;
+    margin-bottom: 5px;
+  }
+
+  #historial a:hover {
+    text-decoration: underline;
+  }
+
+  .cita {
+    background: #ecf0f1;
+    padding: 10px;
+    border-radius: 5px;
+    margin-top: 10px;
+  }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const claveCorrecta = "Basesenfermería";
+  let intentos = 0;
+
+  function solicitarClave() {
+    const entrada = prompt("Introduce la contraseña para acceder al buscador:");
+    if (entrada === claveCorrecta) {
+      document.getElementById("contenido").style.display = "block";
+    } else {
+      intentos++;
+      if (intentos >= 3) {
+        alert("Has excedido el número de intentos.");
+        window.close();
+      } else {
+        alert("Contraseña incorrecta.");
+        solicitarClave();
+      }
+    }
+  }
+
+  document.body.innerHTML = '<div id="contenido" style="display:none">' + document.body.innerHTML + '</div>';
+  solicitarClave();
+});
+</script>
+
+</head>
+<body>
+
+<h1>Buscador de Artículos Científicos</h1>
+
+<input type="text" id="busqueda" placeholder="Introduce palabras clave...">
+
+<label for="revista">Filtrar por revista:</label>
+<select id="revista">
+  <option value="">Todas las revistas</option>
+  <option value="BMC Nurs[Journal]">BMC Nursing</option>
+  <option value="Nurs Ethics[Journal]">Nursing Ethics</option>
+  <option value="Healthcare (Basel)[Journal]">Healthcare</option>
+  <option value="J Nurs Educ[Journal]">Journal of Nursing Education</option>
+</select>
+
+
+<button onclick="buscarTodas()">Buscar en todas las revistas</button>
+
+<button onclick="buscar()">Buscar</button>
+
+<button onclick="exportarCitas()">Exportar todas las citas (.txt)</button>
+
+
+<div class="resultados" id="resultados"></div>
+
+<script>
+function buscar() {
+  const termino = document.getElementById('busqueda').value;
+  const revista = document.getElementById('revista').value;
+  const resultadosDiv = document.getElementById('resultados');
+  resultadosDiv.innerHTML = "Buscando...";
+
+  let query = termino;
+  if (revista) {
+    query += ` AND ${revista}`;
+  }
+
+  fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=5&term=${encodeURIComponent(query)}`)
+    .then(res => res.json())
+    .then(data => {
+      const ids = data.esearchresult.idlist.join(',');
+      return fetch(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${ids}&retmode=xml`);
+    })
+    .then(res => res.text())
+    .then(xmlString => {
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(xmlString, "text/xml");
+      const articles = xml.getElementsByTagName("PubmedArticle");
+      resultadosDiv.innerHTML = '';
+
+      for (let article of articles) {
+        const titulo = article.querySelector("ArticleTitle")?.textContent || "Sin título";
+        const revista = article.querySelector("Journal > Title")?.textContent || "Desconocida";
+        const autores = Array.from(article.getElementsByTagName("Author"))
+          .map(a => {
+            const last = a.querySelector("LastName")?.textContent;
+            const initials = a.querySelector("Initials")?.textContent;
+            return last && initials ? `${last} ${initials}` : null;
+          }).filter(Boolean).join(", ");
+
+        const pmid = article.querySelector("PMID")?.textContent;
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        
+        const doi = article.querySelector("ArticleId[IdType='doi']")?.textContent || "No disponible";
+        const abstract = article.querySelector("Abstract > AbstractText")?.textContent || "Resumen no disponible.";
+
+        card.innerHTML += `<p><strong>DOI:</strong> ${doi}</p>`;
+        card.innerHTML += `<p><strong>Resumen:</strong> ${abstract}</p>`;
+card.innerHTML = `
+          <h3>${titulo}</h3>
+          <p><strong>Autores:</strong> ${autores}</p>
+          <p><strong>Revista:</strong> ${revista}</p>
+          <h3>${titulo}</h3>
+          <p><strong>Autores:</strong> ${autores}</p>
+          <p><strong>Revista:</strong> ${revista}</p>
+          <a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/" target="_blank">Ver en PubMed</a>
+       <br><br>
+       <button onclick="guardarArticulo(this)">Guardar por temática</button>
+       <br><br>
+       <button onclick="mostrarCita(this, 'apa')">APA</button>
+       <button onclick="mostrarCita(this, 'vancouver')">Vancouver</button>
+       
+       <button onclick="copiarCita(this)">Copiar cita</button>
+       <div class="cita" style="margin-top:10px; font-size: 14px;"></div>
+        `;
+        resultadosDiv.appendChild(card);
+      }
+    })
+    .catch(err => {
+      resultadosDiv.innerHTML = 'Error al buscar artículos.';
+      console.error(err);
+    });
+}
+
+function mostrarCita(button, estilo) {
+  const card = button.closest('.card');
+  const titulo = card.querySelector('h3').textContent;
+  const autoresRaw = card.querySelector('p').textContent.replace("Autores:", "").trim();
+  const revista = card.querySelectorAll('p')[1].textContent.replace("Revista:", "").trim();
+  const url = card.querySelector('a').href;
+
+  const autores = autoresRaw.split(", ");
+  let cita = "";
+
+  if (estilo === 'apa') {
+    let autoresApa = autores.map(a => {
+      const [apellido, iniciales] = a.split(" ");
+      return `${apellido}, ${iniciales}.`;
+    }).join(", ");
+    cita = `${autoresApa} (${new Date().getFullYear()}). ${titulo}. *${revista}*. Recuperado de ${url}`;
+  } else if (estilo === 'vancouver') {
+    let autoresVan = autores.map(a => {
+      const [apellido, iniciales] = a.split(" ");
+      return `${apellido} ${iniciales}`;
+    }).join(", ");
+    cita = `${autoresVan}. ${titulo}. ${revista}. ${new Date().getFullYear()}; Disponible en: ${url}`;
+  }
+
+  card.querySelector('.cita').textContent = cita;
+}
+
+
+function copiarCita(button) {
+  const cita = button.parentElement.querySelector('.cita').textContent;
+  if (!cita) return;
+  navigator.clipboard.writeText(cita).then(() => {
+    alert("Cita copiada al portapapeles");
+  }, () => {
+    alert("Error al copiar la cita");
+  });
+}
+
+
+function exportarCitas() {
+  const citas = document.querySelectorAll('.cita');
+  let texto = '';
+  citas.forEach(cita => {
+    if (cita.textContent.trim()) {
+      texto += cita.textContent.trim() + '\n\n';
+    }
+  });
+  if (texto === '') {
+    alert("No hay citas generadas para exportar.");
+    return;
+  }
+
+  const blob = new Blob([texto], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'citas_pubmed.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+
+function guardarArticulo(button) {
+  const card = button.closest('.card');
+  const titulo = card.querySelector('h3').textContent;
+  const autores = card.querySelector('p').textContent.replace("Autores:", "").trim();
+  const revista = card.querySelectorAll('p')[1].textContent.replace("Revista:", "").trim();
+  const doi = card.querySelectorAll('p')[2].textContent.replace("DOI:", "").trim();
+  const resumen = card.querySelectorAll('p')[3].textContent.replace("Resumen:", "").trim();
+  const url = card.querySelector('a').href;
+
+  const tema = prompt("Introduce la temática para guardar este artículo:");
+  if (!tema) return;
+
+  const articulo = { titulo, autores, revista, doi, resumen, url };
+  let historial = JSON.parse(localStorage.getItem('historialArticulos')) || {};
+  if (!historial[tema]) historial[tema] = [];
+  historial[tema].push(articulo);
+  localStorage.setItem('historialArticulos', JSON.stringify(historial));
+
+  mostrarHistorial();
+}
+
+function mostrarHistorial() {
+  const historialDiv = document.getElementById('historial');
+  historialDiv.innerHTML = '';
+  const historial = JSON.parse(localStorage.getItem('historialArticulos')) || {};
+
+  for (let tema in historial) {
+    const seccion = document.createElement('div');
+    seccion.innerHTML = `<h4>${tema}</h4>`;
+    historial[tema].forEach(art => {
+      const a = document.createElement('a');
+      a.href = art.url;
+      a.target = "_blank";
+      a.textContent = art.titulo;
+      seccion.appendChild(a);
+      seccion.appendChild(document.createElement('br'));
+    });
+    historialDiv.appendChild(seccion);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', mostrarHistorial);
+
+
+function buscarTodas() {
+  document.getElementById('revista').value = "";
+  buscar();
+}
+
+</script>
+
+
+<!-- Panel lateral para historial -->
+<aside style="position: fixed; right: 0; top: 0; width: 300px; height: 100%; background: #eee; padding: 15px; overflow-y: auto; border-left: 2px solid #ccc;">
+  <h2>Historial por temática</h2>
+  <div id="historial"></div>
+</aside>
+
+</body>
+
+</html>
